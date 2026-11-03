@@ -4811,7 +4811,22 @@ class SynapseJ4ChannelComplete(object):
             # Get Pre and Post ROIs for this slice
             slice_pre_rois = [roi for roi in syn_pre_rois if roi.getPosition() == slice_idx or (slice_idx == 1 and roi.getPosition() == 0)]
             slice_post_rois = [roi for roi in syn_post_rois if roi.getPosition() == slice_idx or (slice_idx == 1 and roi.getPosition() == 0)]
-            
+           
+
+            #######################################################################
+            # DEBUG
+            #######################################################################
+            n_pre = len(slice_pre_rois)
+            n_post = len(slice_post_rois)
+
+            self.log(
+                "LABEL_CHECK image={} slice={} pre={} post={} report_overflow_risk={}".format(
+                    base_name, slice_idx, n_pre, n_post,
+                    n_pre > 255 and n_post > 0
+                )
+            )
+
+
             if not slice_pre_rois or not slice_post_rois:
                 return []
             
@@ -4820,8 +4835,16 @@ class SynapseJ4ChannelComplete(object):
             pre_measure_ip = pre_intden_stack.getProcessor(slice_idx)
             post_measure_ip = post_intden_stack.getProcessor(slice_idx)
 
-            # Create label map for Pre ROIs
-            pre_label_ip = ByteProcessor(width, height)
+            # Select a label type that preserves every ROI identifier exactly.
+            n_pre = len(slice_pre_rois)
+            if n_pre <= 255:
+                pre_label_ip = ByteProcessor(width, height)
+            elif n_pre <= 65535:
+                pre_label_ip = ShortProcessor(width, height)
+            elif n_pre <= (1 << 24):
+                pre_label_ip = FloatProcessor(width, height)
+            else:
+                raise ValueError("Too many ROIs for exact 32-bit float labels")
             pre_label_map = {}
             for idx, roi in enumerate(slice_pre_rois):
                 label_val = idx + 1
@@ -4833,21 +4856,19 @@ class SynapseJ4ChannelComplete(object):
             
             # For each Post ROI, find overlapping Pre ROIs
             for post_roi in slice_post_rois:
-                pre_label_ip.setRoi(post_roi)
-                hist = pre_label_ip.getHistogram()
-                
-                # Find all Pre ROIs that overlap with this Post ROI
-                overlapping_pre_labels = []
-                for label_val in range(1, len(hist)):
-                    if hist[label_val] > 0:  # Has overlap
-                        overlapping_pre_labels.append(label_val)
-                
-                # Create Complete synapse entry for each Pre-Post pair
-                for pre_label in overlapping_pre_labels:
+                # Count exact labels inside the ROI; valid for all three types.
+                # FloatProcessor histograms are binned intensities, not label IDs.
+                overlap_counts = {}
+                for point in post_roi.getContainedPoints():
+                    if 0 <= point.x < width and 0 <= point.y < height:
+                        label_val = int(pre_label_ip.getf(point.x, point.y))
+                        if label_val > 0:
+                            overlap_counts[label_val] = overlap_counts.get(label_val, 0) + 1
+
+                # Preserve the original ascending-label report order.
+                for pre_label in sorted(overlap_counts):
                     pre_roi = pre_label_map[pre_label]
-                    
-                    # Calculate overlap in pixels between Pre and Post ROIs
-                    overlap_px = hist[pre_label]
+                    overlap_px = overlap_counts[pre_label]
                     
                     # Get IDs from metrics
                     pre_entry = pre_roi_to_entry.get(pre_roi)
