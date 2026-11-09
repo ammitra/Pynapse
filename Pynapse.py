@@ -442,15 +442,15 @@ if not is_jython():
         # === Write Collated ResultsIF ===
         if results_summary_dfs:
             df = pl.concat(results_summary_dfs, how='diagonal')
-            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'Collated ResultsIF.txt'), SUMMARY_COLUMNS)
-            print("  Saved: Collated ResultsIF.txt ({} rows)".format(n))
+            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'Collated ResultsIF.tsv'), SUMMARY_COLUMNS)
+            print("  Saved: Collated ResultsIF.tsv ({} rows)".format(n))
         
         # === Write All Pre Results (with simplified labels) ===
         if all_pre_dfs:
             df = pl.concat(all_pre_dfs, how='diagonal')
             df = simplify_labels_vectorized(df)
-            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'All Pre Results.txt'), ALL_RESULTS_COLUMNS, first_image_label=first_image_label)
-            print("  Saved: All Pre Results.txt ({} rows)".format(n))
+            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'All Pre Results.tsv'), ALL_RESULTS_COLUMNS, first_image_label=first_image_label)
+            print("  Saved: All Pre Results.tsv ({} rows)".format(n))
         
         # === Write All Post Results (with simplified labels) ===
         if all_post_dfs:
@@ -461,36 +461,36 @@ if not is_jython():
             if all_post_flat:
                 df = pl.DataFrame(all_post_flat)
                 df = simplify_labels_vectorized(df)
-                n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'All Post Results.txt'), ALL_RESULTS_COLUMNS, first_image_label=first_image_label)
-                print("  Saved: All Post Results.txt ({} rows)".format(n))
+                n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'All Post Results.tsv'), ALL_RESULTS_COLUMNS, first_image_label=first_image_label)
+                print("  Saved: All Post Results.tsv ({} rows)".format(n))
         
         # === Write Syn Pre Results ===
         if syn_pre_dfs:
             df = pl.concat(syn_pre_dfs, how='diagonal')
-            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'Syn Pre Results.txt'), SYN_RESULTS_COLUMNS, first_image_label=first_image_label)
-            print("  Saved: Syn Pre Results.txt ({} rows)".format(n))
+            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'Syn Pre Results.tsv'), SYN_RESULTS_COLUMNS, first_image_label=first_image_label)
+            print("  Saved: Syn Pre Results.tsv ({} rows)".format(n))
         
         # === Write Syn Post Results ===
         if syn_post_dfs:
             df = pl.concat(syn_post_dfs, how='diagonal')
-            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'Syn Post Results.txt'), SYN_RESULTS_COLUMNS, first_image_label=first_image_label)
-            print("  Saved: Syn Post Results.txt ({} rows)".format(n))
+            n = write_tsv_with_row_numbers(df, os.path.join(dest_dir, 'Syn Post Results.tsv'), SYN_RESULTS_COLUMNS, first_image_label=first_image_label)
+            print("  Saved: Syn Post Results.tsv ({} rows)".format(n))
         
         # === Write correlation results (pre-formatted TSV strings) ===
         CORR_HEADER = "Image Name\tArea\tMean\tMin\tMax\tX\tY\tXM\tYM\tPerim.\tFeret\tIntDen\tRawIntDen\tFeretX\tFeretY\tFeretAngle\tMinFeret\tImage Name\tArea\tMean\tMin\tMax\tX\tY\tXM\tYM\tPerim.\tFeret\tIntDen\tRawIntDen\tFeretX\tFeretY\tFeretAngle\tMinFeret\tNo. of Post/Pre Puncta \tPost IntDen\tPostsynaptic Puncta No.\tOverlap\tDistance\tDistance M"
         CORR_HEADER2 = CORR_HEADER.replace('Post/Pre', 'Pre/Post').replace('Post IntDen', 'Pre IntDen').replace('Postsynaptic', 'Presynaptic')
         
         if pre_corr_list:
-            with open(os.path.join(dest_dir, 'CorrResults.txt'), 'w') as f:
+            with open(os.path.join(dest_dir, 'CorrResults.tsv'), 'w') as f:
                 f.write(CORR_HEADER + '\n')
                 f.write('\n'.join(pre_corr_list) + '\n')
-            print("  Saved: CorrResults.txt ({} rows)".format(len(pre_corr_list)))
+            print("  Saved: CorrResults.tsv ({} rows)".format(len(pre_corr_list)))
         
         if post_corr_list:
-            with open(os.path.join(dest_dir, 'CorrResults2.txt'), 'w') as f:
+            with open(os.path.join(dest_dir, 'CorrResults2.tsv'), 'w') as f:
                 f.write(CORR_HEADER2 + '\n')
                 f.write('\n'.join(post_corr_list) + '\n')
-            print("  Saved: CorrResults2.txt ({} rows)".format(len(post_corr_list)))
+            print("  Saved: CorrResults2.tsv ({} rows)".format(len(post_corr_list)))
         
         # === Write batch synapse report ===
         present_dir = os.path.join(dest_dir, 'present')
@@ -629,7 +629,7 @@ Pynapse.main()
         
         # Create output directories
         for folder in [dest_dir, os.path.join(dest_dir, 'merge'), 
-                       os.path.join(dest_dir, 'excel'), 
+                       os.path.join(dest_dir, 'result_tables'), 
                        os.path.join(dest_dir, '_intermediate')]:
             if not os.path.exists(folder):
                 os.makedirs(folder)
@@ -1239,7 +1239,7 @@ class SynapseJ4ChannelComplete(object):
         
         This is used by "Set Measurements... decimal=3" which outputs exactly 3 decimal 
         places for float values (no stripping of trailing zeros).
-        Used for Pre.txt, Post.txt, and Syn Results files.
+        Used for Pre.tsv, Post.tsv, and Syn Results files.
         """
         if val is None:
             return ''
@@ -1772,7 +1772,7 @@ class SynapseJ4ChannelComplete(object):
             
         # Define subdirectories for organized output.
         self.merge_dir = os.path.join(self.dest_dir, 'merge')
-        self.excel_dir = os.path.join(self.dest_dir, 'excel')
+        self.excel_dir = os.path.join(self.dest_dir, 'result_tables')
         
         # Create output directories if they don't exist.
         # Use Java File API as fallback since os.makedirs can silently fail in some Jython environments
@@ -1952,9 +1952,9 @@ class SynapseJ4ChannelComplete(object):
         post_count_total = len(post_entries)
 
         # ==========================================================================
-        # IMPORTANT: Save Pre.txt and Post.txt BEFORE marker gating!
+        # IMPORTANT: Save Pre.tsv and Post.tsv BEFORE marker gating!
         # SynapseJ saves Results after PrepChannel but BEFORE CoLocROI marker gating.
-        # The Pre.txt/Post.txt files contain ALL detected puncta (before filtering).
+        # The Pre.tsv/Post.tsv files contain ALL detected puncta (before filtering).
         # ==========================================================================
         all_pre_rows = [entry['metrics'] for entry in pre_entries]
         all_post_rows = [entry['metrics'] for entry in post_entries]
@@ -1965,11 +1965,11 @@ class SynapseJ4ChannelComplete(object):
         
         if all_pre_rows:
             self.all_pre_results.extend(all_pre_rows)
-            self.save_results_table(self._filter_all_results_metrics(all_pre_rows), os.path.join(self.dest_dir, '{}Pre.txt'.format(name_short)))
+            self.save_results_table(self._filter_all_results_metrics(all_pre_rows), os.path.join(self.dest_dir, '{}Pre.tsv'.format(name_short)))
             pre_roi_index_map = self.save_roi_set([entry['roi'] for entry in pre_entries], os.path.join(self.dest_dir, '{}PreALLRoiSet.zip'.format(name_short)), pre_result_imp)
         if all_post_rows:
             self.all_post_results.extend(all_post_rows)
-            self.save_results_table(self._filter_all_results_metrics(all_post_rows), os.path.join(self.dest_dir, '{}Post.txt'.format(name_short)))
+            self.save_results_table(self._filter_all_results_metrics(all_post_rows), os.path.join(self.dest_dir, '{}Post.tsv'.format(name_short)))
             post_roi_index_map = self.save_roi_set([entry['roi'] for entry in post_entries], os.path.join(self.dest_dir, '{}PostALLRoiSet.zip'.format(name_short)), post_result_imp)
 
         # --- Marker Channel Gating ---
@@ -2023,7 +2023,7 @@ class SynapseJ4ChannelComplete(object):
                 pre_result_imp,
                 pre_mask_imp,
                 name_short,
-                'PreThrResults.txt',
+                'PreThrResults.tsv',
                 cal,
                 mask_name_for_bug=pre_mask_name,
                 marker_channel_name="C{}-image".format(self.pre_marker_channel)
@@ -2069,7 +2069,7 @@ class SynapseJ4ChannelComplete(object):
                 post_result_imp,
                 post_mask_imp,
                 name_short,
-                'PstRResults.txt',
+                'PstRResults.tsv',
                 cal,
                 mask_name_for_bug=post_mask_name,
                 marker_channel_name="C{}-image".format(self.post_marker_channel)
@@ -2112,7 +2112,7 @@ class SynapseJ4ChannelComplete(object):
                                               self.pre_params['min'], 65535, get_pre_slice_label)
             # Per-image synaptic pre-synaptic results (Excel folder) - save BEFORE bug replication
             # Per-image files have correct thresholds; only aggregate Syn Results has zeroed thresholds
-            self.save_results_table(self._filter_standard_metrics(syn_pre_rows), os.path.join(self.excel_dir, '{}PreResults.txt'.format(name_short)))
+            self.save_results_table(self._filter_standard_metrics(syn_pre_rows), os.path.join(self.excel_dir, '{}PreResults.tsv'.format(name_short)))
             # Use pre_roi_index_map to preserve original indices from PreALLRoiSet
             self.save_roi_set(syn_pre_rois, os.path.join(self.dest_dir, '{}PreSYNRoiSet.zip'.format(name_short)), pre_result_imp, pre_roi_index_map)
             
@@ -2130,7 +2130,7 @@ class SynapseJ4ChannelComplete(object):
             syn_post_rows = self.measure_rois(syn_post_rois, post_result_imp, name_short, 'Post', cal,
                                                self.post_params['min'], 65535, get_post_slice_label)
             # Per-image synaptic post-synaptic results (Excel folder) - save BEFORE bug replication
-            self.save_results_table(self._filter_standard_metrics(syn_post_rows), os.path.join(self.excel_dir, '{}PostResults.txt'.format(name_short)))
+            self.save_results_table(self._filter_standard_metrics(syn_post_rows), os.path.join(self.excel_dir, '{}PostResults.tsv'.format(name_short)))
             # Use post_roi_index_map to preserve original indices from PostALLRoiSet
             self.save_roi_set(syn_post_rois, os.path.join(self.dest_dir, '{}PostSYNRoiSet.zip'.format(name_short)), post_result_imp, post_roi_index_map)
             
@@ -2819,8 +2819,8 @@ class SynapseJ4ChannelComplete(object):
         # Combine results from all slices and assign final indices
         # Build labels in og2 format: {image}F.tif:{slice:04d}-{index:04d}-{y:04d}:{slice_label}
         # Example: AK5-2001PreF.tif:0001-0034-0091:c:4/4 z:1/5 - AK5-2001.nd2 (series 1)
-        # Note: For "All Results" (Pre.txt/Post.txt), the label should be SIMPLE (base_name).
-        # The COMPLEX label is used for "Syn Results" (PreResults.txt/PostResults.txt).
+        # Note: For "All Results" (Pre.tsv/Post.tsv), the label should be SIMPLE (base_name).
+        # The COMPLEX label is used for "Syn Results" (PreResults.tsv/PostResults.tsv).
         # We set the ROI name to the SSSS-NNNN-YYYY format so measure_rois can reconstruct the complex label later.
         
         entries = []
@@ -3456,7 +3456,7 @@ class SynapseJ4ChannelComplete(object):
         """
         # Save the summary table (Collated ResultsIF) which contains one row per image.
         if self.results_summary:
-            self.save_results_table(self.results_summary, os.path.join(self.dest_dir, 'Collated ResultsIF.txt'))
+            self.save_results_table(self.results_summary, os.path.join(self.dest_dir, 'Collated ResultsIF.tsv'))
         
         # Determine the first image label for combined files.
         # og2 behavior: first image processed uses 3-decimal format, subsequent images use AUTO_FORMAT.
@@ -3482,20 +3482,20 @@ class SynapseJ4ChannelComplete(object):
         # Use _filter_all_results_metrics for simple Label format (no thresholds)
         # Combined files use first_image_label to match og2's per-image formatting behavior.
         if self.all_pre_results:
-            self.save_results_table(self._filter_all_results_metrics(self.all_pre_results), os.path.join(self.dest_dir, 'All Pre Results.txt'), first_image_label=first_image_label)
+            self.save_results_table(self._filter_all_results_metrics(self.all_pre_results), os.path.join(self.dest_dir, 'All Pre Results.tsv'), first_image_label=first_image_label)
             
         # Save the detailed list of ALL detected post-synaptic puncta (before synapse filtering).
         if self.all_post_results:
-            self.save_results_table(self._filter_all_results_metrics(self.all_post_results), os.path.join(self.dest_dir, 'All Post Results.txt'), first_image_label=first_image_label)
+            self.save_results_table(self._filter_all_results_metrics(self.all_post_results), os.path.join(self.dest_dir, 'All Post Results.tsv'), first_image_label=first_image_label)
             
         # Save the list of CONFIRMED synaptic pre-puncta (those that colocalized).
         # Use _filter_standard_metrics for full Label format (with thresholds)
         if self.syn_pre_results:
-            self.save_results_table(self._filter_standard_metrics(self.syn_pre_results), os.path.join(self.dest_dir, 'Syn Pre Results.txt'), first_image_label=first_image_label)
+            self.save_results_table(self._filter_standard_metrics(self.syn_pre_results), os.path.join(self.dest_dir, 'Syn Pre Results.tsv'), first_image_label=first_image_label)
             
         # Save the list of CONFIRMED synaptic post-puncta (those that colocalized).
         if self.syn_post_results:
-            self.save_results_table(self._filter_standard_metrics(self.syn_post_results), os.path.join(self.dest_dir, 'Syn Post Results.txt'), first_image_label=first_image_label)
+            self.save_results_table(self._filter_standard_metrics(self.syn_post_results), os.path.join(self.dest_dir, 'Syn Post Results.tsv'), first_image_label=first_image_label)
             
         # Save the paired synapse data (currently unused/empty in this implementation but kept for compatibility).
         if self.synapse_pair_rows:
@@ -3606,7 +3606,7 @@ class SynapseJ4ChannelComplete(object):
         
         # Define subdirectories
         self.merge_dir = os.path.join(self.dest_dir, 'merge')
-        self.excel_dir = os.path.join(self.dest_dir, 'excel')
+        self.excel_dir = os.path.join(self.dest_dir, 'result_tables')
         
         # Create output directories if needed
         for folder in [self.dest_dir, self.merge_dir, self.excel_dir]:
