@@ -4755,6 +4755,52 @@ class SynapseJ4ChannelComplete(object):
         c3.close()
         c4.close()
 
+    @staticmethod
+    def _measure_pair_region(roi, pre_ip, post_ip, cal):
+        """Measure one AND/OR mask on each channel with explicit calibration.
+
+        IntDen is calibrated area * calibrated mean; RawIntDen is the sum
+        of uncalibrated pixel values. Never substitute a bounding-box estimate.
+        """
+        if roi is None or roi.getBounds().width <= 0:
+            raise ValueError("Empty pair measurement ROI")
+        if cal.pixelWidth <= 0 or cal.pixelHeight <= 0:
+            raise ValueError("Pair measurement requires positive pixel dimensions")
+        # Private image: perimeter/Feret must use the same calibration as area,
+        # even if Fiji has a global calibration or other slices run concurrently.
+        geometry_imp = ImagePlus("pair geometry", pre_ip)
+        geometry_imp.setIgnoreGlobalCalibration(True)
+        geometry_imp.setCalibration(cal.copy())
+        roi.setImage(geometry_imp)
+        result = {}
+        try:
+            for channel, ip in (("pre", pre_ip), ("post", post_ip)):
+                ip.setRoi(roi)
+                stats = ImageStatistics.getStatistics(
+                    ip, Measurements.AREA | Measurements.MEAN | Measurements.CENTROID, cal)
+                raw = ImageStatistics.getStatistics(ip, Measurements.AREA | Measurements.MEAN, None)
+                if raw.pixelCount <= 0:
+                    raise ValueError("Pair measurement ROI contains no pixels")
+                result[channel + "_intden"] = stats.area * stats.mean
+                result[channel + "_rawintden"] = raw.pixelCount * raw.mean
+                if channel == "pre":
+                    result.update(area=stats.area, x=stats.xCentroid,
+                                  y=stats.yCentroid, pixels=raw.pixelCount)
+            result["perim"] = roi.getLength()
+            feret = roi.getFeretValues()
+            if feret is None:
+                raise ValueError("Missing pair ROI Feret measurements")
+            result["feret"], result["min_feret"] = feret[0], feret[2]
+            perim = result["perim"]
+            uncapped = 4.0 * math.pi * result["area"] / (perim * perim) if perim > 0 else 0.0
+            result["circ_uncapped"] = uncapped
+            result["circ"] = min(1.0, uncapped)  # ImageJ Analyzer convention
+            return result
+        finally:
+            pre_ip.resetRoi()
+            post_ip.resetRoi()
+            roi.setImage(None)
+
     def generate_presentation_outputs(self, base_name, pre_entries, post_entries, syn_pre_rois, syn_post_rois, cal, pre_result_imp, post_result_imp, pre_measure_imp=None, post_measure_imp=None):
         """
         Generate presentation output: Batch_Synapse_Report.csv (accumulated).
@@ -4878,180 +4924,35 @@ class SynapseJ4ChannelComplete(object):
                     pre_m = pre_entry['metrics']
                     post_m = post_entry['metrics']
                     
-                    # --- Geometry Calculations ---
-                    # Use pixel-based method exclusively for intersection (consistent with overlap_px)
-                    pixel_area = cal.pixelWidth * cal.pixelHeight
-                    
-                    # Intersection area = overlap pixels * pixel area (matches Overlap um^2 exactly)
-                    intersect_area = overlap_px * pixel_area
-                    
-                    # Get bounding boxes for geometry calculations
-                    pre_bounds = pre_roi.getBounds()
-                    post_bounds = post_roi.getBounds()
-                    
-                    # Calculate bounding box of intersection
-                    ix1 = max(pre_bounds.x, post_bounds.x)
-                    iy1 = max(pre_bounds.y, post_bounds.y)
-                    ix2 = min(pre_bounds.x + pre_bounds.width, post_bounds.x + post_bounds.width)
-                    iy2 = min(pre_bounds.y + pre_bounds.height, post_bounds.y + post_bounds.height)
-                    
-                    # --- Create actual Intersection ROI using ShapeRoi ---
-                    # This provides accurate geometric measurements instead of approximations
-                    # Note: 'and' is a Python keyword, so we use getattr() to call the Java method
+                    # Exact region measurements; failures abort this report instead
+                    # of silently writing approximate geometry or intensity.
                     try:
-                        pre_shape = ShapeRoi(pre_roi)
-                        post_shape = ShapeRoi(post_roi)
-                        # ShapeRoi.and(ShapeRoi) returns the intersection
-                        intersect_roi = getattr(pre_shape, 'and')(post_shape)
-                        
-                        if intersect_roi is not None and intersect_roi.getBounds().width > 0:
-                            # Set up the ROI with proper image and calibration for accurate measurements
-                            intersect_roi.setImage(pre_result_imp)
-                            intersect_roi.setPosition(slice_idx)
-                            
-                            # Get intersection statistics from the actual ROI
-                            pre_measure_ip.setRoi(intersect_roi)
-                            intersect_stats = ImageStatistics.getStatistics(
-                                pre_measure_ip, 
-                                Measurements.AREA | Measurements.MEAN | Measurements.CENTROID | Measurements.INTEGRATED_DENSITY,
-                                cal
-                            )
-                            
-                            intersect_area = intersect_stats.area
-                            intersect_x = intersect_stats.xCentroid
-                            intersect_y = intersect_stats.yCentroid
-                            intersect_intden = intersect_stats.mean * intersect_stats.area / pixel_area
-                            intersect_rawintden = intersect_intden
-                            
-                            # Get perimeter from ROI (returns calibrated value when image is set)
-                            intersect_perim = intersect_roi.getLength() if intersect_roi else 0
-                            
-                            # Get Feret values from ROI
-                            try:
-                                feret_vals = intersect_roi.getFeretValues()
-                                intersect_feret = feret_vals[0] if feret_vals else 0
-                                intersect_min_feret = feret_vals[2] if feret_vals else 0
-                            except:
-                                # Fallback: estimate from area as circular diameter
-                                intersect_feret = 2 * math.sqrt(intersect_area / math.pi) if intersect_area > 0 else 0
-                                intersect_min_feret = intersect_feret
-                            
-                            # Calculate intersection circularity: 4*pi*area/perimeter^2
-                            if intersect_perim > 0:
-                                intersect_circ = 4.0 * math.pi * intersect_area / (intersect_perim * intersect_perim)
-                            else:
-                                intersect_circ = 1.0  # Perfect circle default
-                        else:
-                            raise Exception("Empty intersection")
-                    except:
-                        # Fallback to approximation if ShapeRoi fails
-                        intersect_x = (pre_m.get('X', 0) + post_m.get('X', 0)) / 2.0
-                        intersect_y = (pre_m.get('Y', 0) + post_m.get('Y', 0)) / 2.0
-                        pre_mean = pre_m.get('Mean', 0)
-                        intersect_rawintden = pre_mean * overlap_px
-                        intersect_intden = intersect_rawintden
-                        
-                        if ix2 > ix1 and iy2 > iy1:
-                            overlap_width = (ix2 - ix1) * cal.pixelWidth
-                            overlap_height = (iy2 - iy1) * cal.pixelHeight
-                            intersect_feret = max(overlap_width, overlap_height)
-                            intersect_min_feret = min(overlap_width, overlap_height)
-                            intersect_perim = 2 * (overlap_width + overlap_height)
-                        else:
-                            equiv_radius = math.sqrt(intersect_area / math.pi) if intersect_area > 0 else 0
-                            intersect_perim = 2 * math.pi * equiv_radius
-                            intersect_feret = 2 * equiv_radius
-                            intersect_min_feret = 2 * equiv_radius
-                        
-                        # Approximate circularity
-                        if intersect_perim > 0:
-                            intersect_circ = 4.0 * math.pi * intersect_area / (intersect_perim * intersect_perim)
-                        else:
-                            intersect_circ = 1.0
-                    
-                    # --- Create actual Union ROI using ShapeRoi ---
-                    # Note: 'or' is a Python keyword, so we use getattr() to call the Java method
-                    try:
-                        pre_shape = ShapeRoi(pre_roi)
-                        post_shape = ShapeRoi(post_roi)
-                        # ShapeRoi.or(ShapeRoi) returns the union
-                        union_roi = getattr(pre_shape, 'or')(post_shape)
-                        
-                        if union_roi is not None and union_roi.getBounds().width > 0:
-                            # Set up the ROI with proper image and calibration for accurate measurements
-                            union_roi.setImage(pre_result_imp)
-                            union_roi.setPosition(slice_idx)
-                            
-                            # Get union statistics - use pre_measure_ip for consistency
-                            pre_measure_ip.setRoi(union_roi)
-                            union_stats = ImageStatistics.getStatistics(
-                                pre_measure_ip,
-                                Measurements.AREA | Measurements.MEAN | Measurements.CENTROID | Measurements.INTEGRATED_DENSITY,
-                                cal
-                            )
-                            
-                            union_area = union_stats.area
-                            union_x = union_stats.xCentroid
-                            union_y = union_stats.yCentroid
-                            
-                            # Get perimeter from ROI (returns calibrated value when image is set)
-                            union_perim = union_roi.getLength() if union_roi else 0
-                            
-                            # Get Feret values from ROI
-                            try:
-                                feret_vals = union_roi.getFeretValues()
-                                union_feret = feret_vals[0] if feret_vals else 0
-                                union_min_feret = feret_vals[2] if feret_vals else 0
-                            except:
-                                # Fallback: estimate from area as circular diameter
-                                union_feret = 2 * math.sqrt(union_area / math.pi) if union_area > 0 else 0
-                                union_min_feret = union_feret
-                            
-                            # Union IntDen: Sum of Pre and Post IntDen (from original channels)
-                            pre_intden_val = pre_m.get('IntDen', 0)
-                            post_intden_val = post_m.get('IntDen', 0)
-                            union_intden = pre_intden_val + post_intden_val
-                            union_rawintden = union_intden
-                            
-                            # Calculate union circularity
-                            if union_perim > 0:
-                                union_circ = 4.0 * math.pi * union_area / (union_perim * union_perim)
-                            else:
-                                union_circ = 1.0
-                        else:
-                            raise Exception("Empty union")
-                    except:
-                        # Fallback to mathematical approximation
-                        pre_area = pre_m.get('Area', 0)
-                        post_area = post_m.get('Area', 0)
-                        union_area = pre_area + post_area - intersect_area
-                        
-                        pre_intden_val = pre_m.get('IntDen', 0)
-                        post_intden_val = post_m.get('IntDen', 0)
-                        union_intden = pre_intden_val + post_intden_val
-                        union_rawintden = union_intden
-                        
-                        if union_area > 0:
-                            pre_weight = pre_area / union_area
-                            post_weight = post_area / union_area
-                            union_x = pre_m.get('X', 0) * pre_weight + post_m.get('X', 0) * post_weight
-                            union_y = pre_m.get('Y', 0) * pre_weight + post_m.get('Y', 0) * post_weight
-                        else:
-                            union_x = (pre_m.get('X', 0) + post_m.get('X', 0)) / 2.0
-                            union_y = (pre_m.get('Y', 0) + post_m.get('Y', 0)) / 2.0
-                        
-                        union_bbox_width = (max(pre_bounds.x + pre_bounds.width, post_bounds.x + post_bounds.width) - 
-                                           min(pre_bounds.x, post_bounds.x)) * cal.pixelWidth
-                        union_bbox_height = (max(pre_bounds.y + pre_bounds.height, post_bounds.y + post_bounds.height) - 
-                                            min(pre_bounds.y, post_bounds.y)) * cal.pixelHeight
-                        union_feret = max(union_bbox_width, union_bbox_height)
-                        union_min_feret = min(union_bbox_width, union_bbox_height)
-                        union_perim = 2 * (union_bbox_width + union_bbox_height)
-                        
-                        if union_perim > 0:
-                            union_circ = 4.0 * math.pi * union_area / (union_perim * union_perim)
-                        else:
-                            union_circ = 1.0
+                        intersect_roi = getattr(ShapeRoi(pre_roi), 'and')(ShapeRoi(post_roi))
+                        union_roi = getattr(ShapeRoi(pre_roi), 'or')(ShapeRoi(post_roi))
+                        intersect = self._measure_pair_region(intersect_roi, pre_measure_ip, post_measure_ip, cal)
+                        union = self._measure_pair_region(union_roi, pre_measure_ip, post_measure_ip, cal)
+                    except Exception as exc:
+                        raise RuntimeError("Pair measurement failed for {} / {} on slice {}: {}".format(
+                            pre_id, post_id, slice_idx, exc))
+
+                    intersect_area = intersect['area']
+                    intersect_perim = intersect['perim']
+                    intersect_x = intersect['x']
+                    intersect_y = intersect['y']
+                    intersect_feret = intersect['feret']
+                    intersect_min_feret = intersect['min_feret']
+                    intersect_circ = intersect['circ']
+                    intersect_intden = intersect['pre_intden']
+                    intersect_rawintden = intersect['pre_rawintden']
+                    union_area = union['area']
+                    union_perim = union['perim']
+                    union_x = union['x']
+                    union_y = union['y']
+                    union_feret = union['feret']
+                    union_min_feret = union['min_feret']
+                    union_circ = union['circ']
+                    union_intden = union['pre_intden']
+                    union_rawintden = union['pre_rawintden']
 
                     # --- Distances between centroids ---
                     geo_dist = math.sqrt((pre_m['X'] - post_m['X'])**2 + (pre_m['Y'] - post_m['Y'])**2)
@@ -5093,6 +4994,8 @@ class SynapseJ4ChannelComplete(object):
                         'union_intden': union_intden,
                         'union_rawintden': union_rawintden,
                         'union_circ': union_circ,
+                        'intersect_measurements': intersect,
+                        'union_measurements': union,
                         # Distances
                         'geo_dist': geo_dist,
                         'int_dist': int_dist
@@ -5168,6 +5071,20 @@ class SynapseJ4ChannelComplete(object):
                     ('Pre-Post Centroid Distance (um)', fmt(match['geo_dist'])),
                     ('Pre-Post Center of Mass Distance (um)', fmt(match['int_dist']))
                 ])
+                # Legacy intensity column names now consistently mean PRE channel.
+                # Explicit columns make both channels available without ambiguity.
+                row['Pair Measurement Version'] = 2
+                row['Pair Pre Channel'] = self.pre_channel
+                row['Pair Post Channel'] = self.post_channel
+                for region in ('Intersect', 'Union'):
+                    measurements = match[region.lower() + '_measurements']
+                    row[region + ' Pixels'] = measurements['pixels']
+                    row[region + ' Circularity Uncapped'] = fmt(measurements['circ_uncapped'])
+                    for channel in ('Pre', 'Post'):
+                        for metric, key in (('IntDen', 'intden'), ('RawIntDen', 'rawintden')):
+                            row[region + ' ' + channel + ' ' + metric] = fmt(
+                                measurements[channel.lower() + '_' + key])
+                row['Pair Summed IntDen'] = fmt(match['pre_intden'] + match['post_intden'])
                 synapse_rows.append(row)
         
         # Add to batch accumulator (no individual file saves)
